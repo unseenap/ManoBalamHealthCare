@@ -1,9 +1,29 @@
+import nodemailer from "nodemailer";
 import { Resend } from "resend";
 import { env } from "@/config/env";
 import { UserModel } from "@/modules/user/user.model";
 import { logger } from "@/utils/logger";
 
-const resend = new Resend(env.RESEND_API_KEY);
+const emailProvider = (() => {
+  if (env.EMAIL_DELIVERY_MODE === "smtp") {
+    const secure = env.SMTP_PORT === 465;
+    const transport = nodemailer.createTransport({
+      host: env.SMTP_HOST,
+      port: env.SMTP_PORT,
+      secure,
+      requireTLS: !secure,
+      auth: { user: env.SMTP_USER, pass: env.SMTP_PASS },
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 20_000,
+    });
+    return { mode: "smtp", transport } as const;
+  }
+  if (env.EMAIL_DELIVERY_MODE === "resend") {
+    return { mode: "resend", client: new Resend(env.RESEND_API_KEY) } as const;
+  }
+  return { mode: "console" } as const;
+})();
 const FROM_ADDRESS = env.EMAIL_FROM ?? "ManoBalamHealthCare <onboarding@resend.dev>";
 
 const escapeHtml = (value: string) =>
@@ -27,7 +47,7 @@ const deliverEmail = async ({
   text?: string;
   developmentCode?: string;
 }): Promise<void> => {
-  if (env.EMAIL_DELIVERY_MODE === "console") {
+  if (emailProvider.mode === "console") {
     logger.warn("Development email captured instead of sent", {
       metadata: {
         to,
@@ -38,13 +58,14 @@ const deliverEmail = async ({
     return;
   }
 
-  const { data, error } = await resend.emails.send({
-    from: FROM_ADDRESS,
-    to,
-    subject,
-    html,
-    text,
-  });
+  const message = { from: FROM_ADDRESS, to, subject, html, text };
+  if (emailProvider.mode === "smtp") {
+    const { messageId } = await emailProvider.transport.sendMail(message);
+    logger.info("Email accepted by provider", { metadata: { messageId, provider: "smtp" } });
+    return;
+  }
+
+  const { data, error } = await emailProvider.client.emails.send(message);
 
   if (error) {
     const providerError = new Error(`Resend delivery failed: ${error.message}`);

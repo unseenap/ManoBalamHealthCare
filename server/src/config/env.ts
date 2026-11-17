@@ -15,30 +15,53 @@ const envSchema = z.object({
   RAZORPAY_KEY_ID: z.string().min(1),
   RAZORPAY_KEY_SECRET: z.string().min(1),
   RAZORPAY_WEBHOOK_SECRET: z.string().min(1),
-  RESEND_API_KEY: z.string().min(1),
-  EMAIL_DELIVERY_MODE: z.enum(["resend", "console"]).default("resend"),
+  RESEND_API_KEY: z.string().trim().optional(),
+  EMAIL_DELIVERY_MODE: z.enum(["resend", "smtp", "console"]).default("resend"),
   EMAIL_FROM: z.string().min(3).optional(),
+  SMTP_HOST: z.string().trim().optional(),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
+  SMTP_USER: z.string().trim().optional(),
+  SMTP_PASS: z.string().optional(),
   MSG91_API_KEY: z.string().optional(),
   METERED_TURN_CREDENTIALS_URL: z.string().url(),
   CLIENT_ORIGIN: z.string().min(1),
   ENCRYPTION_KEY: z.string().min(32),
 }).superRefine((data, context) => {
-  if (data.NODE_ENV === "production" && data.EMAIL_DELIVERY_MODE !== "resend") {
+  if (data.NODE_ENV === "production" && data.EMAIL_DELIVERY_MODE === "console") {
     context.addIssue({
       code: "custom",
       path: ["EMAIL_DELIVERY_MODE"],
-      message: "Production email delivery must use resend",
+      message: "Production email delivery must use resend or smtp",
     });
   }
   if (
-    data.NODE_ENV === "production" &&
-    (!data.EMAIL_FROM || data.EMAIL_FROM.includes("@resend.dev"))
+    (data.EMAIL_DELIVERY_MODE === "smtp" ||
+      (data.NODE_ENV === "production" && data.EMAIL_DELIVERY_MODE === "resend")) &&
+    (!data.EMAIL_FROM?.trim() || data.EMAIL_FROM.toLowerCase().includes("@resend.dev"))
   ) {
     context.addIssue({
       code: "custom",
       path: ["EMAIL_FROM"],
-      message: "Production requires EMAIL_FROM on a verified sending domain",
+      message: "EMAIL_FROM must be an address authorized by your email provider",
     });
+  }
+  if (data.EMAIL_DELIVERY_MODE === "resend" && !data.RESEND_API_KEY) {
+    context.addIssue({
+      code: "custom",
+      path: ["RESEND_API_KEY"],
+      message: "RESEND_API_KEY is required in resend mode",
+    });
+  }
+  if (data.EMAIL_DELIVERY_MODE === "smtp") {
+    for (const key of ["SMTP_HOST", "SMTP_USER", "SMTP_PASS"] as const) {
+      if (!data[key]?.trim()) {
+        context.addIssue({
+          code: "custom",
+          path: [key],
+          message: `${key} is required in smtp mode`,
+        });
+      }
+    }
   }
   if (
     data.NODE_ENV === "production" &&
