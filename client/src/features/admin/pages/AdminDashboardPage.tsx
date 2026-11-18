@@ -29,9 +29,11 @@ import {
   getPendingPsychologists,
   refundPayment,
   verifyPsychologist,
+  reviewPsychologistChanges,
   type AdminAttentionSummary,
 } from "../api/admin.api";
 import { PsychologistVerificationCard } from "../components/PsychologistVerificationCard";
+import { adminErrorMessage } from "../api/adminError";
 import { RefundModal } from "../components/RefundModal";
 import { ReportsChart } from "../components/ReportsChart";
 import { AdminUserLink } from "../components/AdminUserLink";
@@ -160,11 +162,17 @@ export function AdminDashboardPage() {
   const handleVerify = async (id: string, payload: VerifyPsychologistDto) => {
     try {
       setIsProcessing(true);
-      await verifyPsychologist(id, payload);
-      toast.success(payload.decision === "approved" ? "Psychologist approved" : "Review decision saved");
+      const psychologist = pendingPsychologists.find((item) => item.id === id);
+      const isChangeReview = psychologist?.onboardingStatus === "approved" && psychologist?.changeReviewStatus === "pending";
+      if (isChangeReview) {
+        await reviewPsychologistChanges(id, payload);
+      } else {
+        await verifyPsychologist(id, payload);
+      }
+      toast.success(payload.decision === "approved" ? (isChangeReview ? "Profile changes approved" : "Psychologist approved") : "Review decision saved");
       await fetchData();
-    } catch {
-      toast.error("Failed to process verification");
+    } catch (error) {
+      toast.error(adminErrorMessage(error, "Failed to process verification. Please try again."));
     } finally {
       setIsProcessing(false);
     }
@@ -379,7 +387,7 @@ export function AdminDashboardPage() {
             {pendingPsychologists.length === 0 ? (
               <EmptyState icon={CheckCircle2} title="Verification queue is clear" description="Every submitted professional application has been reviewed." />
             ) : (
-              <div className="grid gap-5">{pendingPsychologists.map((psychologist) => <PsychologistVerificationCard key={psychologist.id} psychologist={psychologist} onVerify={handleVerify} isProcessing={isProcessing} />)}</div>
+              <div className="grid gap-5">{pendingPsychologists.map((psychologist) => <PsychologistVerificationCard key={psychologist.id} psychologist={psychologist} onVerify={handleVerify} isProcessing={isProcessing} onFeeUpdated={fetchData} />)}</div>
             )}
           </TabsContent>
 

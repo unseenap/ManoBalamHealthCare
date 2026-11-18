@@ -6,6 +6,7 @@ import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { PsychologistVerificationCard } from "../components/PsychologistVerificationCard";
 import { AdminWorkspaceHeader } from "../components/AdminWorkspaceHeader";
 import { getPendingPsychologists, verifyPsychologist, reviewPsychologistChanges } from "../api/admin.api";
+import { adminErrorMessage } from "../api/adminError";
 import type { PendingPsychologistItem, VerifyPsychologistDto } from "../types/admin.types";
 import { toast } from "sonner";
 import { CheckCircle2, AlertCircle, RefreshCw, ShieldCheck } from "lucide-react";
@@ -33,7 +34,8 @@ export function AdminVerificationsPage() {
   }, []);
 
   useEffect(() => {
-    fetchPsychologists();
+    const timeoutId = window.setTimeout(() => void fetchPsychologists(), 0);
+    return () => window.clearTimeout(timeoutId);
   }, [fetchPsychologists]);
 
   const handleVerify = async (id: string, payload: VerifyPsychologistDto) => {
@@ -60,9 +62,9 @@ export function AdminVerificationsPage() {
             : "Psychologist rejected!"
         );
       }
-      fetchPsychologists();
+      await fetchPsychologists();
     } catch (err) {
-      toast.error("Failed to process verification");
+      toast.error(adminErrorMessage(err, "Failed to process verification. Please try again."));
     } finally {
       setIsProcessing(false);
     }
@@ -137,6 +139,7 @@ export function AdminVerificationsPage() {
                 psychologist={psychologist}
                 onVerify={handleVerify}
                 isProcessing={isProcessing}
+                onFeeUpdated={fetchPsychologists}
               />
             ))}
           </div>

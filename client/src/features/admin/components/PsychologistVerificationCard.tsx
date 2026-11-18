@@ -5,6 +5,10 @@ import { DocumentViewerDialog } from "@/components/shared/DocumentViewerDialog";
 import { formatInViewerTz } from "@/lib/timezone";
 import type { PendingPsychologistItem, VerifyPsychologistDto } from "../types/admin.types";
 import { useState } from "react";
+import { Input } from "@/components/ui/input";
+import { toast } from "sonner";
+import { setPsychologistFee } from "../api/admin.api";
+import { adminErrorMessage } from "../api/adminError";
 import { AdminUserLink } from "./AdminUserLink";
 import { BadgeCheck, CheckCircle2, XCircle, FileText, Globe2, Languages, Stethoscope, Users, Calendar, Landmark } from "lucide-react";
 
@@ -18,6 +22,7 @@ interface PsychologistVerificationCardProps {
   psychologist: PendingPsychologistItem;
   onVerify: (id: string, payload: VerifyPsychologistDto) => void;
   isProcessing: boolean;
+  onFeeUpdated: () => void | Promise<void>;
 }
 
 const formatFee = (fee?: { amount: number; currency: string }) =>
@@ -46,10 +51,14 @@ export function PsychologistVerificationCard({
   psychologist,
   onVerify,
   isProcessing,
+  onFeeUpdated,
 }: PsychologistVerificationCardProps) {
   const [showReject, setShowReject] = useState(false);
   const [rejectionReason, setRejectionReason] = useState("");
   const [viewerDoc, setViewerDoc] = useState<{ url: string; title: string } | null>(null);
+  const [feeAmount, setFeeAmount] = useState("");
+  const [isSavingFee, setIsSavingFee] = useState(false);
+  const [feeError, setFeeError] = useState<string | null>(null);
 
   // A card can represent a first-time application (under_review) or a
   // change-review request from an already-approved psychologist.
@@ -58,8 +67,34 @@ export function PsychologistVerificationCard({
   );
   const isChangeReview =
     psychologist.changeReviewStatus === "pending" &&
-    psychologist.onboardingStatus === "approved" &&
-    pendingEntries.length > 0;
+    psychologist.onboardingStatus === "approved";
+  const needsFee = !isChangeReview && !(psychologist.consultationFee?.amount > 0);
+  const busy = isProcessing || isSavingFee;
+  const feeHelpId = `fee-help-${psychologist.id}`;
+
+  const saveFee = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const amount = Math.round(Number(feeAmount) * 100);
+    if (!/^\d+(\.\d{1,2})?$/.test(feeAmount) || amount < 5000 || amount > 10_000_000) {
+      setFeeError("Enter a fee between ₹50 and ₹1,00,000, with at most two decimal places.");
+      return;
+    }
+    try {
+      setIsSavingFee(true);
+      setFeeError(null);
+      await setPsychologistFee(psychologist.id, {
+        amount,
+        currency: "INR",
+        reason: "Initial consultation fee set during application review",
+      });
+      toast.success("Consultation fee saved. You can now approve the application.");
+      await onFeeUpdated();
+    } catch (error) {
+      setFeeError(adminErrorMessage(error, "Unable to save the consultation fee. Please try again."));
+    } finally {
+      setIsSavingFee(false);
+    }
+  };
 
   return (
     <Card className="overflow-hidden rounded-[2rem] border border-slate-100 bg-white shadow-sm transition-all hover:border-violet-100 hover:shadow-xl hover:shadow-primary/8">
@@ -118,7 +153,7 @@ export function PsychologistVerificationCard({
               </p>
               <p className="mt-1 text-sm font-semibold text-slate-700">
                 {psychologist.submittedAt
-                  ? formatInViewerTz(psychologist.submittedAt, "MMM do, yyyy")
+                  ? formatInViewerTz(psychologist.submittedAt, "dd LLL yyyy")
                   : "Not submitted"}
               </p>
             </div>
@@ -220,6 +255,19 @@ export function PsychologistVerificationCard({
           </div>
         )}
 
+        {needsFee && (
+          <form onSubmit={saveFee} className="space-y-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+            <p id={feeHelpId} className="text-sm font-semibold text-amber-900">Set a consultation fee before approving this application.</p>
+            <label htmlFor={`fee-${psychologist.id}`} className="block text-sm font-medium text-slate-700">Consultation fee per session (₹)</label>
+            <div className="flex flex-wrap gap-3">
+              <Input id={`fee-${psychologist.id}`} type="number" min="50" max="100000" step="0.01" required value={feeAmount} onChange={(event) => { setFeeAmount(event.target.value); setFeeError(null); }} disabled={busy} aria-describedby={feeHelpId} placeholder="Enter the session fee" className="h-11 min-w-48 flex-1 bg-white" />
+              <Button type="submit" disabled={busy} className="h-11 rounded-xl">{isSavingFee ? "Saving..." : "Save consultation fee"}</Button>
+            </div>
+            <p className="text-xs text-amber-800">Allowed fee: ₹50–₹1,00,000. Saving the fee does not approve the application.</p>
+            {feeError && <p role="alert" className="text-sm font-medium text-rose-700">{feeError}</p>}
+          </form>
+        )}
+
         {showReject && (
           <div className="space-y-3 rounded-2xl border border-rose-100 bg-rose-50 p-4">
             <label className="text-sm font-black text-rose-700">
@@ -238,7 +286,8 @@ export function PsychologistVerificationCard({
         <div className="flex flex-wrap gap-3 pt-2">
           <Button
             onClick={() => onVerify(psychologist.id, { decision: "approved" })}
-            disabled={isProcessing}
+            disabled={busy || needsFee}
+            aria-describedby={needsFee ? feeHelpId : undefined}
             className="h-11 flex-1 rounded-xl bg-gradient-to-r from-emerald-600 to-green-600 font-bold shadow-md hover:from-emerald-700 hover:to-green-700"
           >
             <CheckCircle2 className="mr-2 size-4" />
@@ -258,7 +307,7 @@ export function PsychologistVerificationCard({
                 });
               }
             }}
-            disabled={isProcessing}
+            disabled={busy}
             className="h-11 flex-1 rounded-xl border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800 font-bold"
           >
             <XCircle className="mr-2 size-4" />
