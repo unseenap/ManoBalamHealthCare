@@ -1,11 +1,11 @@
 import bcrypt from "bcrypt";
-import crypto from "crypto";
 import { UserModel } from "@/modules/user/user.model";
 import { PsychologistModel } from "@/modules/psychologist/psychologist.model";
 import { ApiError } from "@/utils/ApiError";
 import { StatusCodes } from "@/constants/statusCodes.constant";
 import { ErrorCodes } from "@/constants/errorCodes.constant";
 import { generateOtp, storeOtp, verifyOtp } from "@/utils/otp";
+import { consumeResetOtp, hashResetOtp, passwordResetKey } from "@/utils/passwordResetOtp";
 import {
   generateAccessToken,
   generateRefreshToken,
@@ -13,7 +13,6 @@ import {
 } from "@/middlewares/auth.middleware";
 import { sendOtpEmail, sendPasswordResetEmail } from "@/modules/notification/channels/email.channel";
 import redis from "@/config/redis";
-import { env } from "@/config/env";
 import { logger } from "@/utils/logger";
 import type {
   RegisterRequest,
@@ -132,26 +131,31 @@ export class AuthService {
   }
 
   async forgotPassword(email: string): Promise<void> {
-    const user = await UserModel.findOne({ email: email.toLowerCase(), isActive: true });
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await UserModel.findOne({ email: normalizedEmail, isActive: true });
     if (!user) return;
 
-    const token = crypto.randomBytes(32).toString("hex");
-    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
-    await redis.set(`password-reset:${tokenHash}`, user._id.toString(), "EX", 15 * 60);
-    const resetUrl = `${env.CLIENT_ORIGIN.replace(/\/$/, "")}/reset-password?token=${token}`;
-    await sendPasswordResetEmail(user.email!, user.name, resetUrl);
-    logger.info("Password reset email sent", { metadata: { userId: user._id.toString() } });
+    const otp = generateOtp();
+    const key = passwordResetKey(normalizedEmail);
+    const record = JSON.stringify({ userId: user._id.toString(), hash: hashResetOtp(otp), attempts: 0 });
+    await redis.set(key, record, "EX", 5 * 60);
+    try {
+      await sendPasswordResetEmail(user.email!, user.name, otp);
+    } catch (error) {
+      // Do not remove a newer code if another request replaced this one.
+      await redis.eval("if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0", 1, key, record);
+      throw error;
+    }
+    logger.info("Password reset code sent", { metadata: { userId: user._id.toString() } });
   }
 
-  async resetPassword(token: string, password: string): Promise<void> {
-    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
-    const key = `password-reset:${tokenHash}`;
-    const userId = await redis.get(key);
+  async resetPassword(email: string, otp: string, password: string): Promise<void> {
+    const userId = await consumeResetOtp(email.trim().toLowerCase(), otp);
     if (!userId) {
       throw new ApiError(
         StatusCodes.BAD_REQUEST,
-        ErrorCodes.TOKEN_INVALID,
-        "Password reset link is invalid or expired",
+        ErrorCodes.OTP_INVALID,
+        "Reset code is incorrect, expired, or has too many failed attempts. Request a new code if needed.",
       );
     }
     const user = await UserModel.findById(userId);
@@ -161,7 +165,6 @@ export class AuthService {
     user.passwordHash = await bcrypt.hash(password, 12);
     user.authVersion = (user.authVersion ?? 0) + 1;
     await user.save();
-    await redis.del(key);
     logger.info("Password reset completed", { metadata: { userId } });
   }
 

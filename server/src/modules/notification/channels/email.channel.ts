@@ -109,18 +109,15 @@ export const sendOtpEmail = async (
 export const sendPasswordResetEmail = async (
   toEmail: string,
   userName: string,
-  resetUrl: string,
+  otp: string,
 ): Promise<void> => {
   const html = `
     <div style="font-family: sans-serif; max-width: 520px; margin: 0 auto;">
       <h2>Reset your ManoBalamHealthCare password</h2>
       <p>Hi ${escapeHtml(userName)},</p>
-      <p>Use the secure link below to create a new password. It expires in 15 minutes.</p>
-      <p style="margin: 28px 0;">
-        <a href="${escapeHtml(resetUrl)}" style="background:#6d28d9;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:700;">
-          Reset password
-        </a>
-      </p>
+      <p>Enter this six-digit code on the website along with your new password. It expires in 5 minutes.</p>
+      <div style="font-size:36px;font-weight:bold;letter-spacing:8px;text-align:center;padding:24px;background:#f4f4f5;border-radius:8px;margin:24px 0;">${escapeHtml(otp)}</div>
+      <p>Only the most recently requested code works. Never share this code with anyone.</p>
       <p style="color:#6b7280;font-size:14px;">If you did not request this, you can safely ignore this email.</p>
     </div>
   `;
@@ -129,6 +126,7 @@ export const sendPasswordResetEmail = async (
     to: toEmail,
     subject: "Reset your ManoBalamHealthCare password",
     html,
+    developmentCode: otp,
   });
 };
 

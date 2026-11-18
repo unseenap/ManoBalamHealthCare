@@ -40,6 +40,6 @@ export const requestPasswordReset = async (email: string): Promise<void> => {
   await axiosInstance.post("/auth/forgot-password", { email });
 };
 
-export const resetPassword = async (token: string, password: string): Promise<void> => {
-  await axiosInstance.post("/auth/reset-password", { token, password });
+export const resetPassword = async (email: string, otp: string, password: string): Promise<void> => {
+  await axiosInstance.post("/auth/reset-password", { email, otp, password });
 };

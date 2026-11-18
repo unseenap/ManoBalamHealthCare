@@ -31,11 +31,12 @@ export const resendOtpSchema = z.object({
 });
 
 export const forgotPasswordSchema = z.object({
-  email: z.string().email().trim(),
+  email: z.string().trim().toLowerCase().email(),
 });
 
 export const resetPasswordSchema = z.object({
-  token: z.string().min(32),
+  email: z.string().trim().toLowerCase().email(),
+  otp: z.string().trim().regex(/^\d{6}$/, "Enter the six-digit reset code"),
   password: z.string().min(8).refine((value) => /[A-Z]/.test(value), {
     message: "Password must contain at least one uppercase letter",
   }).refine((value) => /[0-9]/.test(value), {

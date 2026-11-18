@@ -1,5 +1,6 @@
 import {
   registerSchema,
+  forgotPasswordSchema,
   resetPasswordSchema,
 } from "./auth.validation";
 
@@ -29,7 +30,24 @@ describe("authentication validation", () => {
   });
 
   it("enforces password reset strength", () => {
-    expect(resetPasswordSchema.safeParse({ token: "a".repeat(64), password: "weakpass" }).success).toBe(false);
-    expect(resetPasswordSchema.safeParse({ token: "a".repeat(64), password: "Strongpass1" }).success).toBe(true);
+    const credentials = { email: "user@example.com", otp: "012345" };
+    expect(resetPasswordSchema.safeParse({ ...credentials, password: "weakpass" }).success).toBe(false);
+    expect(resetPasswordSchema.safeParse({ ...credentials, password: "Strongpass1" }).success).toBe(true);
+  });
+
+  it("requires an email and exactly six numeric OTP digits instead of a link token", () => {
+    const payload = { email: "user@example.com", otp: "012345", password: "Strongpass1" };
+    for (const otp of ["12345", "1234567", "12a456", ""]) {
+      expect(resetPasswordSchema.safeParse({ ...payload, otp }).success).toBe(false);
+    }
+    expect(resetPasswordSchema.safeParse({ ...payload, email: "invalid" }).success).toBe(false);
+    expect(resetPasswordSchema.safeParse({ token: "a".repeat(64), password: "Strongpass1" }).success).toBe(false);
+  });
+
+  it("normalizes reset emails and preserves leading zeroes in the OTP", () => {
+    expect(forgotPasswordSchema.parse({ email: " User@Example.com " })).toEqual({ email: "user@example.com" });
+    expect(resetPasswordSchema.parse({ email: " User@Example.com ", otp: "012345", password: "Strongpass1" })).toEqual({
+      email: "user@example.com", otp: "012345", password: "Strongpass1",
+    });
   });
 });

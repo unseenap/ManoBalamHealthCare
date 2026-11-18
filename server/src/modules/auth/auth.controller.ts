@@ -47,12 +47,12 @@ export class AuthController {
   forgotPassword = asyncHandler(async (req: Request, res: Response, _next: NextFunction) => {
     await authService.forgotPassword(req.body.email);
     res.status(200).json(
-      ApiResponse.success(null, "If the account exists, a password reset link has been sent"),
+      ApiResponse.success(null, "If an active account exists, a password reset code has been sent"),
     );
   });
 
   resetPassword = asyncHandler(async (req: Request, res: Response, _next: NextFunction) => {
-    await authService.resetPassword(req.body.token, req.body.password);
+    await authService.resetPassword(req.body.email, req.body.otp, req.body.password);
     res.status(200).json(ApiResponse.success(null, "Password reset successfully"));
   });
 
